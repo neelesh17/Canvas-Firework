@@ -112,7 +112,7 @@ var mouse = {
   x: innerWidth / 2,
   y: innerHeight / 2
 };
-var colors = ['#2185C5', '#7ECEFD', '#FFF6E5', '#FF7F66']; // Event Listeners
+var isMouseDown = false; // Event Listeners
 
 addEventListener('mousemove', function (event) {
   mouse.x = event.clientX;
@@ -121,58 +121,293 @@ addEventListener('mousemove', function (event) {
 addEventListener('resize', function () {
   canvas.width = innerWidth;
   canvas.height = innerHeight;
-  init();
+  initialize();
+});
+addEventListener('mousedown', function () {
+  isMouseDown = true;
+});
+addEventListener('mouseup', function () {
+  isMouseDown = false;
+});
+canvas.addEventListener('touchstart', function () {
+  isMouseDown = true;
+});
+canvas.addEventListener('touchmove', function (event) {
+  event.preventDefault();
+  mouse.x = event.touches[0].pageX;
+  mouse.y = event.touches[0].pageY;
+});
+canvas.addEventListener('touchend', function () {
+  isMouseDown = false;
 }); // Objects
 
-var _Object = /*#__PURE__*/function () {
-  function Object(x, y, radius, color) {
-    _classCallCheck(this, Object);
+var Cannon = /*#__PURE__*/function () {
+  function Cannon(x, y, width, height, color) {
+    _classCallCheck(this, Cannon);
+
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this.angle = 0;
+    this.color = color;
+  }
+
+  _createClass(Cannon, [{
+    key: "update",
+    value: function update() {
+      desiredAngle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+      this.angle = desiredAngle;
+      this.draw();
+    }
+  }, {
+    key: "draw",
+    value: function draw() {
+      c.save();
+      c.translate(this.x, this.y);
+      c.rotate(this.angle);
+      c.beginPath();
+      c.fillStyle = this.color;
+      c.shadowColor = this.color;
+      c.shadowBlur = 3;
+      c.shadowOffsetX = 0;
+      c.shadowOffsetY = 0;
+      c.fillRect(0, -this.height / 2, this.width, this.height);
+      c.closePath();
+      c.restore();
+    }
+  }]);
+
+  return Cannon;
+}();
+
+var Cannonball = /*#__PURE__*/function () {
+  function Cannonball(x, y, dx, dy, radius, color, cannon, particleColors) {
+    _classCallCheck(this, Cannonball);
 
     this.x = x;
     this.y = y;
     this.radius = radius;
     this.color = color;
+    this.dx = dx;
+    this.dy = -dy;
+    this.particleColors = particleColors;
+    this.source = cannon;
+    this.timeToLife = canvas.height / (canvas.height + 800);
+    this.init();
   }
 
-  _createClass(Object, [{
+  _createClass(Cannonball, [{
+    key: "init",
+    value: function init() {
+      // Initialize the cannonballs start coordinates (from muzzle of cannon)
+      this.x = Math.cos(this.source.angle) * this.source.width;
+      this.y = Math.sin(this.source.angle) * this.source.width; // Translate relative to canvas positioning
+
+      this.x = this.x + canvas.width / 2;
+      this.y = this.y + canvas.height; // Determine whether the cannonball should be 
+      // fired to the left or right of the cannon
+
+      if (mouse.x - canvas.width / 2 < 0) {
+        this.dx = -this.dx;
+      }
+
+      this.dy = Math.sin(this.source.angle) * 8;
+      this.dx = Math.cos(this.source.angle) * 8;
+    }
+  }, {
     key: "draw",
     value: function draw() {
+      c.save();
       c.beginPath();
       c.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
+      c.shadowColor = this.color;
+      c.shadowBlur = 5;
+      c.shadowOffsetX = 0;
+      c.shadowOffsetY = 0;
       c.fillStyle = this.color;
       c.fill();
       c.closePath();
+      c.restore();
     }
   }, {
     key: "update",
     value: function update() {
+      if (this.y + this.radius + this.dy > canvas.height) {
+        this.dy = -this.dy;
+      } else {
+        this.dy -= gravity;
+      }
+
+      this.y += this.dy;
+      this.x += this.dx;
       this.draw();
+      this.timeToLife -= 0.01;
     }
   }]);
 
-  return Object;
+  return Cannonball;
+}();
+
+var Particle = /*#__PURE__*/function () {
+  function Particle(x, y, dx, dy, radius, color) {
+    _classCallCheck(this, Particle);
+
+    this.x = x;
+    this.y = y;
+    this.radius = 5;
+    this.color = color;
+    this.dx = dx;
+    this.dy = -dy;
+    this.timeToLive = 1;
+  }
+
+  _createClass(Particle, [{
+    key: "draw",
+    value: function draw() {
+      c.save();
+      c.beginPath();
+      c.arc(this.x, this.y, 2, 0, Math.PI * 2, false);
+      c.shadowColor = this.color;
+      c.shadowBlur = 10;
+      c.shadowOffsetX = 0;
+      c.shadowOffsetY = 0;
+      c.fillStyle = this.color;
+      c.fill();
+      c.closePath();
+      c.restore();
+    }
+  }, {
+    key: "update",
+    value: function update() {
+      if (this.y + this.radius + this.dy > canvas.height) {
+        this.dy = -this.dy;
+      }
+
+      if (this.x + this.radius + this.dx > canvas.width || this.x - this.radius + this.dx < 0) {
+        this.dx = -this.dx;
+      }
+
+      this.y += this.dy;
+      this.x += this.dx;
+      this.draw();
+      this.timeToLive -= 0.01;
+    }
+  }]);
+
+  return Particle;
+}();
+
+var Explosion = /*#__PURE__*/function () {
+  function Explosion(cannonball) {
+    _classCallCheck(this, Explosion);
+
+    this.particles = [];
+    this.rings = [];
+    this.source = cannonball;
+    this.init();
+  }
+
+  _createClass(Explosion, [{
+    key: "init",
+    value: function init() {
+      for (var index = 0; index < 10; index++) {
+        var dx = Math.random() * 6 - 3;
+        var dy = Math.random() * 6 - 3;
+        var randomParticleColor = _utils__WEBPACK_IMPORTED_MODULE_0___default.a.randomColor(this.source.particleColors);
+        this.particles.push(new Particle(this.source.x, this.source.y, dx, dy, 1, randomParticleColor));
+      }
+    }
+  }, {
+    key: "update",
+    value: function update() {
+      var _this = this;
+
+      this.particles.forEach(function (particle, i) {
+        particle.update();
+
+        if (particle.timeToLive < 0) {
+          _this.particles.splice(i, 1);
+        }
+      });
+      this.rings.forEach(function (ring, i) {
+        ring.update();
+
+        if (ring.timeToLife < 0) {
+          _this.rings.splice(i, 1);
+        }
+      });
+    }
+  }]);
+
+  return Explosion;
 }(); // Implementation
 
 
-var objects;
+var gravity = 0.08;
+var desiredAngle = 0;
+var cannon, cannonballs, explosions, colors;
 
-function init() {
-  objects = [];
+function initialize() {
+  cannon = new Cannon(canvas.width / 2, canvas.height, 20, 10, "white");
+  cannonballs = [];
+  explosions = [];
+  colors = [{
+    cannonballColor: "#fff",
+    particleColors: ["#ff4747", "#00ceed", "#fff"]
+  }];
+}
 
-  for (var i = 0; i < 400; i++) {// objects.push()
-  }
-} // Animation Loop
-
+initialize();
+var timer = 0;
+var isIntroComplete = false;
+var introTimer = 0; // Animation Loop
 
 function animate() {
   requestAnimationFrame(animate);
-  c.clearRect(0, 0, canvas.width, canvas.height);
-  c.fillText('HTML CANVAS BOILERPLATE', mouse.x, mouse.y); // objects.forEach(object => {
-  //  object.update()
-  // })
+  c.fillStyle = "rgba(18, 18, 18, 0.2)";
+  c.fillRect(0, 0, canvas.width, canvas.height);
+  cannon.update();
+
+  if (isIntroComplete === false) {
+    introTimer += 1;
+
+    if (introTimer % 3 === 0) {
+      var color = _utils__WEBPACK_IMPORTED_MODULE_0___default.a.randomColor(colors);
+      cannonballs.push(new Cannonball(canvas.width / 2, canvas.height / 2, 2, 2, 4, color.cannonballColor, cannon, color.particleColors));
+    }
+
+    if (introTimer > 30) {
+      isIntroComplete = true;
+    }
+  }
+
+  cannonballs.forEach(function (cannonball, i) {
+    cannonball.update();
+
+    if (cannonball.timeToLife <= 0) {
+      explosions.push(new Explosion(cannonball));
+      cannonballs.splice(i, 1);
+    }
+  });
+  explosions.forEach(function (explosion, index) {
+    explosion.update();
+
+    if (explosion.particles.length <= 0) {
+      explosions.splice(index, 1);
+    }
+  });
+
+  if (isMouseDown === true) {
+    timer += 1;
+
+    if (timer % 3 === 0) {
+      var randomColors = _utils__WEBPACK_IMPORTED_MODULE_0___default.a.randomColor(colors);
+      cannonballs.push(new Cannonball(mouse.x, mouse.y, 2, 2, 4, randomColors.cannonballColor, cannon, randomColors.particleColors));
+    }
+  }
 }
 
-init();
 animate();
 
 /***/ }),
